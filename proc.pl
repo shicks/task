@@ -32,6 +32,14 @@ while (<$e>) {
 }
 close $e;
 
+#####
+use Proc::Editor qw/GIT_EDITOR VISUAL EDITOR/;
+
+run_with_editor { shift ? run_editor : s/foo/bar/g } qw/git rebase -i/;
+my $out = run_editor 'abc';
+
+Sdh::Editor::run_editor;
+
 my $e = editor->simulate(['git', 'rebase', '-i', 'HEAD~20']);
 # ...
 

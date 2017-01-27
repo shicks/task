@@ -30,7 +30,7 @@ BEGIN {
 EOF
 }
 
-use Sdh::Editor ':all';
+use Proc::Editor qw(run_editor run_with_editor);
 
 
 # Reads the incoming directory, returning (filename, contents)
@@ -76,7 +76,7 @@ subtest 'Test run_editor' => sub {
   subtest 'Implicit parameter with suffix' => sub {
     write_data('result', 'xyz');
     $_ = 'abc';
-    my $out = run_editor(suffix => '.dat');
+    my $out = run_editor suffix => '.dat';
     is $_, 'xyz', 'Updated $_';
     is $out, 'xyz', 'Returned correct result';
     my ($file, $contents) = incoming;
@@ -99,18 +99,18 @@ subtest 'Test run_editor' => sub {
     delete $ENV{BAR};
     $ENV{BAZ} = '';
     $ENV{FOO} = "$dir/foo";
-    Sdh::Editor->import(qw/:all :env BAR BAZ FOO EDITOR/);
+    Proc::Editor->set_editor(qw(BAR BAZ FOO EDITOR));
     is run_editor('zzz'), "foo\n", 'Ran correct editor';
   };
 
   subtest 'Git editors' => sub {
     write_script('ge', 'echo giteditor > $1');
     $ENV{GIT_EDITOR} = "$dir/ge";
-    Sdh::Editor->import(qw/:all :git/);
+    Proc::Editor->import(':git');
     is run_editor('zzz'), "giteditor\n", 'Ran GIT_EDITOR';
   };
 
-  Sdh::Editor->import(qw/:all/);  # clean up
+  Proc::Editor->import();  # clean up
 };
 
 subtest 'Test run_with_editor' => sub {
@@ -119,11 +119,13 @@ subtest 'Test run_with_editor' => sub {
 
   subtest 'Simple pass-through' => sub {
     $_ = 'do not disturb';
+    $ENV{EDITOR} = 'also do not disturb';
     write_data('test input', 'abc');
     my $ret = run_with_editor { $_ = "$_$_" } "$dir/passthrough", "$dir/test input";
     is read_data('test input'), 'abcabc', 'Ran subroutine on file';
     is $ret, 0, 'Returned zero exit code';
     is $_, 'do not disturb', 'Did not change $_';
+    is $ENV{EDITOR}, 'also do not disturb';
   };
 
   subtest 'Command has spaces' => sub {
@@ -147,16 +149,23 @@ EOF
     is $ret, 0, 'Returned zero exit code';
   };
 
-  subtest 'Passes count as argument' => sub {
+  subtest 'Passes filename as argument' => sub {
+    write_data('f', 'x');
+    run_with_editor { $_ .= shift } ["$dir/passthrough", "$dir/f"];
+    is read_data('f'), "x$dir/f", 'Passed filename';
+  };
+
+  subtest 'Closes over variables' => sub {
     write_script('x3', '$EDITOR "$1"; $EDITOR "$2"; $EDITOR "$3"');
     write_data('a', 'a');
     write_data('b', 'b');
     write_data('c', 'c');
-    run_with_editor { my $count = shift; $_ = "$_$count|@_" }
-                      ["$dir/x3", "$dir/a", "$dir/b", "$dir/c"];
-    is read_data('a'), 'a0|', 'Appended count 0';
-    is read_data('b'), 'b1|', 'Appended count 1';
-    is read_data('c'), 'c2|', 'Appended count 2';
+    my $count = 0;
+    run_with_editor { $_ = "$_$count"; $count++; }
+                    ["$dir/x3", "$dir/a", "$dir/b", "$dir/c"];
+    is read_data('a'), 'a0', 'Appended count 0';
+    is read_data('b'), 'b1', 'Appended count 1';
+    is read_data('c'), 'c2', 'Appended count 2';
   };
 
   subtest 'Recursively calls run_editor' => sub {
@@ -169,7 +178,7 @@ EOF
   };
 
   subtest 'Custom editor variable' => sub {
-    Sdh::Editor->import(qw/:all :env QUX BAZ FOO EDITOR/);
+    Proc::Editor->import(qw(:env QUX BAZ FOO EDITOR));
     write_script('check_wrote_all', <<'EOF');
       if [ "$QUX" != "$BAZ" ]; then exit 1; fi
       if [ "$QUX" != "$FOO" ]; then exit 1; fi
